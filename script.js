@@ -1,4 +1,6 @@
 import { auth, db, A, F } from "./firebase.js";
+import { startCall, onChats } from "./calls.js";
+import { initLive, stopLive } from "./live.js";
 
 const $ = id => document.getElementById(id);
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
@@ -10,6 +12,7 @@ const colorOf = s => COLORS[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % 5]
 
 // Settings, ads and diary are still saved in the browser (backend for these comes later)
 let cfg = load("cb-cfg", { name: "Me", theme: "light", accent: "#2f5bea", size: 16, pic: "", privacy: "anyone" });
+cfg.privacy = cfg.privacy || "anyone";
 let ads = load("cb-ads", []);
 let diary = load("cb-diary", []);
 
@@ -17,6 +20,7 @@ let me = null, chats = [], msgs = [], active = null, want = null, blocked = new 
 let unsubs = [], unsubMsgs = null, signup = false, pending = false;
 
 const chat = () => chats.find(c => c.id === active);
+const chatById = id => chats.find(c => c.id === id);
 const other = c => c.members.find(x => x !== me.uid);
 const title = c => c.group ? c.name : (c.names || {})[other(c)] || "Chat";
 const isBlocked = c => !!c && !c.group && blocked.has(other(c));
@@ -60,12 +64,14 @@ async function start(u) {
   const snap = await F.getDoc(F.doc(db, "users", u.uid));
   me = { uid: u.uid, ...snap.data() };
   cfg.name = me.username; save("cb-cfg", cfg); applyCfg();
+  initLive(me);
   $("auth").hidden = true;
   unsubs = [
     F.onSnapshot(F.query(F.collection(db, "chats"), F.where("members", "array-contains", me.uid)), s => {
       chats = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.updated || 0) - (a.updated || 0));
-      if (want && chat_(want)) { const w = want; want = null; openChat(w); }
+      if (want && chatById(want)) { const w = want; want = null; openChat(w); }
       renderList(); renderBlocked();
+      onChats(chats, me, isBlocked);
       if (active && !chat()) { active = null; $("shell").classList.remove("open"); }
     }),
     F.onSnapshot(F.collection(db, "users", me.uid, "blocked"), s => {
@@ -73,9 +79,9 @@ async function start(u) {
     })
   ];
 }
-const chat_ = id => chats.find(c => c.id === id);
 
 function stop() {
+  stopLive();
   unsubs.forEach(f => f()); unsubMsgs && unsubMsgs();
   unsubs = []; unsubMsgs = null; me = null; chats = []; msgs = []; active = null;
   $("chatList").innerHTML = ""; $("msgs").innerHTML = ""; $("shell").classList.remove("open");
@@ -276,18 +282,9 @@ $("micBtn").onclick = async () => {
   } catch (err) { alert("Allow microphone access to record."); }
 };
 
-// ================= Calls (local preview until WebRTC is added) =================
-let callStream;
-async function startCall(video) {
-  try {
-    callStream = await navigator.mediaDevices.getUserMedia({ audio: true, video });
-    $("callName").textContent = (video ? "Video call with " : "Voice call with ") + title(chat());
-    $("callVideo").srcObject = callStream; $("callVideo").hidden = !video; $("call").hidden = false;
-  } catch (e) { alert("Allow microphone/camera access to start a call."); }
-}
-$("voiceCall").onclick = () => startCall(false);
-$("videoCall").onclick = () => startCall(true);
-$("endCall").onclick = () => { callStream && callStream.getTracks().forEach(t => t.stop()); $("call").hidden = true; };
+// ================= Calls (the call screens live in calls.js) =================
+$("voiceCall").onclick = () => startCall({ chat: chat(), me, video: false, name: title(chat()) });
+$("videoCall").onclick = () => startCall({ chat: chat(), me, video: true, name: title(chat()) });
 
 // ================= Block and report (saved on the server) =================
 function updateBlockUI() {
@@ -335,21 +332,9 @@ document.addEventListener("click", () => $("moreMenu").hidden = true);
 $("blockBtn").onclick = () => toggleBlock();
 $("reportBtn").onclick = reportChat;
 
-// ================= Live, Market, Room (still local for now) =================
-let liveStream;
-$("liveBtn").onclick = async () => {
-  if (liveStream) { liveStream.getTracks().forEach(t => t.stop()); liveStream = null; $("liveVideo").srcObject = null; $("liveBtn").textContent = "Start live"; $("liveState").textContent = "Offline"; return; }
-  try {
-    liveStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    $("liveVideo").srcObject = liveStream; $("liveBtn").textContent = "End live";
-    $("liveState").textContent = "LIVE: " + ($("liveTitle").value || "Untitled");
-  } catch (e) { alert("Allow camera and microphone access to go live."); }
-};
-$("liveForm").onsubmit = e => {
-  e.preventDefault(); const t = $("liveText").value.trim(); if (!t) return;
-  const p = document.createElement("p"); p.textContent = cfg.name + ": " + t; $("liveChat").appendChild(p); $("liveText").value = "";
-};
+// ================= Live: handled in live.js =================
 
+// ================= Marketplace (still local for now) =================
 function renderAds() {
   $("ads").innerHTML = "";
   ads.forEach((a, i) => {
@@ -369,6 +354,7 @@ $("adForm").onsubmit = async e => {
   save("cb-ads", ads); e.target.reset(); renderAds();
 };
 
+// ================= Room (private diary, still local for now) =================
 function renderDiary() {
   $("entries").innerHTML = "";
   diary.forEach((en, i) => {

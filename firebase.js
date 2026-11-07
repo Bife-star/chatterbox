@@ -1,3 +1,4 @@
+// Connects the site to your Firebase project.
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import * as A from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import * as F from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -11,4 +12,4 @@ const app = initializeApp({
 
 export const auth = A.getAuth(app);
 export const db = F.getFirestore(app);
-export { A, F };
+export { A, F };   // A = accounts tools, F = database tools
