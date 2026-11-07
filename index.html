@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chatterbox</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="shell" id="shell">
+
+  <nav class="rail">
+    <button data-view="chats" class="on">Chats</button>
+    <button data-view="live">Live</button>
+    <button data-view="market">Market</button>
+    <button data-view="room">Room</button>
+    <button data-view="settings">Settings</button>
+  </nav>
+
+  <main class="views">
+
+    <!-- CHATS -->
+    <section id="v-chats" class="view on chats">
+      <aside class="side">
+        <header class="bar"><h1>Chatterbox</h1><button id="newChat" class="round" aria-label="New chat">+</button></header>
+        <ul id="chatList" class="list"></ul>
+      </aside>
+      <div class="conv">
+        <header class="bar">
+          <button id="back" class="round back" aria-label="Back">&larr;</button>
+          <div id="cAvatar" class="avatar"></div>
+          <div class="grow"><h2 id="cName">Pick a chat</h2><p id="cStatus" class="muted"></p></div>
+          <button id="voiceCall" class="round" aria-label="Voice call" disabled>Call</button>
+          <button id="videoCall" class="round" aria-label="Video call" disabled>Video</button>
+          <button id="moreBtn" class="round" aria-label="More options" disabled>More</button>
+          <div id="moreMenu" class="menu" hidden>
+            <button id="blockBtn">Block</button>
+            <button id="reportBtn">Report</button>
+          </div>
+        </header>
+        <div id="msgs" class="msgs"><p class="empty">Choose a chat or press + to start one.</p></div>
+        <div id="picker" class="picker" hidden>
+          <div class="tabs"><button data-tab="emoji" class="on">Emoji</button><button data-tab="sticker">Stickers</button></div>
+          <div id="pickerGrid" class="grid"></div>
+        </div>
+        <form id="form" class="composer" autocomplete="off">
+          <button type="button" id="pickBtn" class="round" aria-label="Emoji and stickers">:)</button>
+          <button type="button" id="imgBtn" class="round" aria-label="Send picture">Pic</button>
+          <button type="button" id="memeBtn" class="round" aria-label="Make a meme">Meme</button>
+          <select id="quality" aria-label="Picture quality">
+            <option value="144">144p</option><option value="240">240p</option><option value="360">360p</option>
+            <option value="480">480p</option><option value="720" selected>720p</option>
+          </select>
+          <input id="text" type="text" placeholder="Write a message" aria-label="Message" disabled>
+          <button type="button" id="micBtn" class="round" aria-label="Record voicemail">Mic</button>
+          <button type="submit" id="send" class="send" disabled>Send</button>
+        </form>
+        <input id="file" type="file" accept="image/*" hidden>
+      </div>
+    </section>
+
+    <!-- LIVE -->
+    <section id="v-live" class="view page">
+      <h2>Go live</h2>
+      <input id="liveTitle" placeholder="What are you streaming?">
+      <video id="liveVideo" autoplay muted playsinline></video>
+      <div class="row"><button id="liveBtn" class="primary">Start live</button><span id="liveState" class="muted">Offline</span></div>
+      <div id="liveChat" class="box"></div>
+      <form id="liveForm" class="row"><input id="liveText" placeholder="Comment"><button class="primary">Post</button></form>
+    </section>
+
+    <!-- MARKET -->
+    <section id="v-market" class="view page">
+      <h2>Marketplace</h2>
+      <form id="adForm" class="box stack">
+        <input id="adTitle" placeholder="Product or business name" required>
+        <input id="adPrice" placeholder="Price (e.g. 5,000)">
+        <textarea id="adDesc" placeholder="Describe it" rows="2"></textarea>
+        <input id="adImg" type="file" accept="image/*">
+        <button class="primary">Post ad</button>
+      </form>
+      <div id="ads" class="cards"></div>
+    </section>
+
+    <!-- ROOM (diary) -->
+    <section id="v-room" class="view page">
+      <h2>Room</h2>
+      <p class="muted">Your private diary. Only you see this.</p>
+      <form id="diaryForm" class="stack">
+        <textarea id="diaryText" rows="4" placeholder="Write about your day"></textarea>
+        <button class="primary">Save entry</button>
+      </form>
+      <div id="entries"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="v-settings" class="view page">
+      <h2>Settings</h2>
+      <div class="box stack">
+        <div class="row"><div id="myPic" class="avatar big"></div><button id="picBtn" class="primary">Change profile picture</button><input id="picFile" type="file" accept="image/*" hidden></div>
+        <label>Your name <input id="setName"></label>
+        <label>Theme <select id="setTheme"><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        <label>Accent colour <input id="setAccent" type="color"></label>
+        <label>Text size <input id="setSize" type="range" min="14" max="20"></label>
+        <label>Who can message me
+          <select id="setPrivacy">
+            <option value="anyone">Anyone</option>
+            <option value="added">Only people I've added</option>
+          </select>
+        </label>
+        <div><strong>Blocked people</strong><ul id="blockedList" class="stack"></ul></div>
+        <button id="logout" class="primary">Log out</button>
+        <button id="wipe">Delete all my data</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Call screen -->
+<div id="call" class="call" hidden>
+  <h2 id="callName"></h2>
+  <video id="callVideo" autoplay muted playsinline></video>
+  <p class="muted">Preview only. Connecting to the other person comes with the backend.</p>
+  <button id="endCall" class="danger">End call</button>
+</div>
+<div id="auth" class="auth">
+  <form id="authForm" class="box stack">
+    <h1>Chatterbox</h1>
+    <input id="authEmail" type="email" placeholder="Email" required>
+    <input id="authUser" placeholder="Username (3-20 letters, numbers, _)" hidden>
+    <input id="authPass" type="password" placeholder="Password (6+ characters)" required>
+    <p id="authErr" class="err"></p>
+    <button id="authGo" class="primary">Log in</button>
+    <button type="button" id="authSwitch" class="link">Create an account</button>
+  </form>
+</div>
+<script type="module" src="script.js"></script>
+</body>
+</html>
