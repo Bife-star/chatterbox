@@ -13,8 +13,7 @@ const colorOf = s => COLORS[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % 5]
 // Settings, ads and diary are still saved in the browser (backend for these comes later)
 let cfg = load("cb-cfg", { name: "Me", theme: "light", accent: "#2f5bea", size: 16, pic: "", privacy: "anyone" });
 cfg.privacy = cfg.privacy || "anyone";
-let ads = load("cb-ads", []);
-let diary = load("cb-diary", []);
+let ads = [], diary = [];   // shared marketplace and your diary now live in the database
 
 let me = null, chats = [], msgs = [], active = null, want = null, blocked = new Set();
 let unsubs = [], unsubMsgs = null, signup = false, pending = false;
@@ -23,6 +22,17 @@ const chat = () => chats.find(c => c.id === active);
 const chatById = id => chats.find(c => c.id === id);
 const other = c => c.members.find(x => x !== me.uid);
 const title = c => c.group ? c.name : (c.names || {})[other(c)] || "Chat";
+const photos = {};   // profile pictures of other users, loaded once
+function setAvatar(el, name, uid) {
+  if (uid && photos[uid]) { el.style.backgroundImage = `url(${photos[uid]})`; el.textContent = ""; }
+  else { el.style.backgroundImage = ""; el.style.backgroundColor = colorOf(name); el.textContent = initial(name); }
+}
+async function loadPhotos() {
+  const need = chats.filter(c => !c.group).map(other).filter(u => !(u in photos));
+  need.forEach(u => photos[u] = "");
+  await Promise.all(need.map(async u => { try { photos[u] = (await F.getDoc(F.doc(db, "users", u))).data().photo || ""; } catch (e) {} }));
+  if (need.length) { renderList(); const c = chat(); c && setAvatar($("cAvatar"), title(c), c.group ? null : other(c)); }
+}
 const isBlocked = c => !!c && !c.group && blocked.has(other(c));
 
 // ================= Accounts =================
@@ -63,6 +73,7 @@ A.onAuthStateChanged(auth, u => { if (pending) return; u ? start(u) : stop(); })
 async function start(u) {
   const snap = await F.getDoc(F.doc(db, "users", u.uid));
   me = { uid: u.uid, ...snap.data() };
+  if (me.photo) { cfg.pic = me.photo; photos[me.uid] = me.photo; }
   cfg.name = me.username; save("cb-cfg", cfg); applyCfg();
   initLive(me);
   $("auth").hidden = true;
@@ -72,12 +83,14 @@ async function start(u) {
       if (want && chatById(want)) { const w = want; want = null; openChat(w); }
       renderList(); renderBlocked();
       onChats(chats, me, isBlocked);
+      loadPhotos();
       if (active && !chat()) { active = null; $("shell").classList.remove("open"); }
     }),
     F.onSnapshot(F.collection(db, "users", me.uid, "blocked"), s => {
       blocked = new Set(s.docs.map(d => d.id)); renderList(); updateBlockUI(); renderBlocked();
     })
   ];
+  unsubs.push(...watchShared());
 }
 
 function stop() {
@@ -85,6 +98,7 @@ function stop() {
   unsubs.forEach(f => f()); unsubMsgs && unsubMsgs();
   unsubs = []; unsubMsgs = null; me = null; chats = []; msgs = []; active = null;
   $("chatList").innerHTML = ""; $("msgs").innerHTML = ""; $("shell").classList.remove("open");
+  ads = []; diary = []; renderAds(); renderDiary();
   $("auth").hidden = false;
 }
 $("logout").onclick = () => A.signOut(auth);
@@ -143,8 +157,7 @@ function renderList() {
     li.className = "item" + (c.id === active ? " on" : "");
     li.innerHTML = '<div class="avatar"></div><div class="info"><strong></strong><div class="pre"></div></div>';
     const t = title(c);
-    li.querySelector(".avatar").style.background = colorOf(t);
-    li.querySelector(".avatar").textContent = initial(t);
+    setAvatar(li.querySelector(".avatar"), t, c.group ? null : other(c));
     li.querySelector("strong").textContent = t + (c.group ? " (group)" : "") + (isBlocked(c) ? " (blocked)" : "");
     li.querySelector(".pre").textContent = c.last || "No messages yet";
     li.onclick = () => openChat(c.id);
@@ -163,7 +176,7 @@ function renderMsgs() {
       const t = document.createElement("span"); t.textContent = m.text; d.append(t);
       if (mine) { d.title = "Tap to edit"; d.onclick = () => editMsg(m); }
     } else if (m.type === "image") { const im = new Image(); im.src = m.src; d.append(im); }
-    else if (m.type === "voice") { const a = document.createElement("audio"); a.controls = true; a.src = m.src; d.append(a); }
+    else if (m.type === "voice") d.append(voicePlayer(m));
     else d.textContent = m.text;
     if (m.type !== "sticker") {
       const t = document.createElement("time"); t.textContent = clock(m.time) + (m.edited ? " · edited" : ""); d.append(t);
@@ -176,7 +189,7 @@ function renderMsgs() {
 function openChat(id) {
   active = id; const c = chat(), t = title(c);
   $("cName").textContent = t; $("cStatus").textContent = c.group ? c.members.length + " members" : "";
-  $("cAvatar").textContent = initial(t); $("cAvatar").style.background = colorOf(t);
+  setAvatar($("cAvatar"), t, c.group ? null : other(c));
   $("shell").classList.add("open"); $("moreMenu").hidden = true;
   unsubMsgs && unsubMsgs(); msgs = [];
   unsubMsgs = F.onSnapshot(F.query(F.collection(db, "chats", id, "messages"), F.orderBy("time")), s => {
@@ -235,7 +248,7 @@ async function editMsg(m) {
 $("form").onsubmit = e => {
   e.preventDefault();
   const t = $("text").value.trim(); if (!t || !active) return;
-  push({ type: "text", text: t }); $("text").value = "";
+  push({ type: "text", text: t }); $("text").value = ""; syncSend();
 };
 
 let fileMode = "image";
@@ -257,30 +270,62 @@ function showTab(tab) {
   const g = $("pickerGrid"); g.innerHTML = ""; g.classList.toggle("big", tab === "sticker");
   (tab === "emoji" ? EMOJI : STICKERS).forEach(s => {
     const b = document.createElement("button"); b.type = "button"; b.textContent = s;
-    b.onclick = () => tab === "emoji" ? ($("text").value += s, $("text").focus()) : active && push({ type: "sticker", text: s });
+    b.onclick = () => tab === "emoji" ? ($("text").value += s, syncSend(), $("text").focus()) : active && push({ type: "sticker", text: s });
     g.appendChild(b);
   });
 }
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
 $("pickBtn").onclick = () => { $("picker").hidden = !$("picker").hidden; showTab("emoji"); };
+$("plusBtn").onclick = () => $("tray").hidden = !$("tray").hidden;
+$("stickBtn").onclick = () => { $("picker").hidden = false; showTab("sticker"); $("tray").hidden = true; };
+// Show the mic when the box is empty and the send arrow when there is text (like WhatsApp)
+function syncSend() { const has = $("text").value.trim().length > 0; $("send").hidden = !has; $("micBtn").hidden = has; }
+$("text").addEventListener("input", syncSend);
 
-let rec, chunks;
-$("micBtn").onclick = async () => {
+// ================= Voice notes (tap the mic, speak, tap the arrow to send) =================
+let rec = null, chunks = [], recStart = 0, recTick = null, recSend = true;
+async function startRec() {
   if (!active) return;
-  if (rec && rec.state === "recording") { rec.stop(); return; }
   try {
-    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-    rec = new MediaRecorder(s); chunks = [];
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    rec = new MediaRecorder(stream, { audioBitsPerSecond: 24000 });   // small files, still clear for speech
+    chunks = []; recSend = true;
     rec.ondataavailable = e => chunks.push(e.data);
     rec.onstop = () => {
-      s.getTracks().forEach(t => t.stop()); $("micBtn").classList.remove("rec");
+      stream.getTracks().forEach(t => t.stop()); clearInterval(recTick);
+      $("recBar").hidden = true; $("text").hidden = false; syncSend();
+      const dur = Math.round((Date.now() - recStart) / 1000);
+      if (!recSend || dur < 1) return;
       const r = new FileReader();
-      r.onload = () => r.result.length > 900000 ? alert("Voicemail too long. Keep it under about 30 seconds.") : push({ type: "voice", src: r.result });
+      r.onload = () => r.result.length > 900000 ? alert("Voice note too long.") : push({ type: "voice", src: r.result, dur });
       r.readAsDataURL(new Blob(chunks, { type: rec.mimeType }));
     };
-    rec.start(); $("micBtn").classList.add("rec");
+    rec.start(); recStart = Date.now();
+    $("text").hidden = true; $("micBtn").hidden = true; $("send").hidden = true; $("recBar").hidden = false; $("recTime").textContent = "0:00";
+    recTick = setInterval(() => {
+      const t = Math.round((Date.now() - recStart) / 1000);
+      $("recTime").textContent = Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+      if (t >= 120) rec.stop();   // 2 minute limit
+    }, 500);
   } catch (err) { alert("Allow microphone access to record."); }
-};
+}
+$("micBtn").onclick = startRec;
+$("recSend").onclick = () => rec && rec.state === "recording" && rec.stop();
+$("recCancel").onclick = () => { recSend = false; rec && rec.state === "recording" && rec.stop(); };
+
+function voicePlayer(m) {
+  const w = document.createElement("div"); w.className = "vn";
+  const a = new Audio(m.src), b = document.createElement("button"), bar = document.createElement("div");
+  const fill = document.createElement("i"), t = document.createElement("span");
+  const fmt = x => Math.floor(x / 60) + ":" + String(Math.floor(x % 60)).padStart(2, "0");
+  b.type = "button"; b.textContent = "▶"; bar.className = "bar"; bar.appendChild(fill); t.textContent = fmt(m.dur || 0);
+  b.onclick = e => { e.stopPropagation(); a.paused ? a.play() : a.pause(); };
+  a.onplay = () => b.textContent = "⏸"; a.onpause = () => b.textContent = "▶";
+  a.ontimeupdate = () => { fill.style.width = (a.currentTime / (m.dur || a.duration || 1) * 100) + "%"; t.textContent = fmt(a.currentTime); };
+  a.onended = () => { fill.style.width = "0"; t.textContent = fmt(m.dur || 0); b.textContent = "▶"; };
+  bar.onclick = e => { const r = bar.getBoundingClientRect(); a.currentTime = (e.clientX - r.left) / r.width * (m.dur || a.duration || 0); };
+  w.append(b, bar, t); return w;
+}
 
 // ================= Calls (the call screens live in calls.js) =================
 $("voiceCall").onclick = () => startCall({ chat: chat(), me, video: false, name: title(chat()) });
@@ -289,9 +334,9 @@ $("videoCall").onclick = () => startCall({ chat: chat(), me, video: true, name: 
 // ================= Block and report (saved on the server) =================
 function updateBlockUI() {
   const c = chat(), off = !c || isBlocked(c);
-  ["text", "send", "imgBtn", "memeBtn", "micBtn", "pickBtn", "voiceCall", "videoCall"].forEach(x => $(x).disabled = off);
+  ["text", "send", "imgBtn", "memeBtn", "micBtn", "pickBtn", "plusBtn", "stickBtn", "voiceCall", "videoCall"].forEach(x => $(x).disabled = off);
   $("moreBtn").disabled = !c;
-  $("text").placeholder = c && off ? "You blocked this person" : "Write a message";
+  $("text").placeholder = c && off ? "You blocked this person" : "Chat here";
   $("blockBtn").textContent = isBlocked(c) ? "Unblock" : "Block";
 }
 async function toggleBlock(ask = true) {
@@ -334,39 +379,4 @@ $("reportBtn").onclick = reportChat;
 
 // ================= Live: handled in live.js =================
 
-// ================= Marketplace (still local for now) =================
-function renderAds() {
-  $("ads").innerHTML = "";
-  ads.forEach((a, i) => {
-    const d = document.createElement("div"); d.className = "card";
-    d.innerHTML = '<img alt=""><div><strong></strong><p class="price"></p><p class="muted"></p><p class="muted"></p><button class="danger">Remove</button></div>';
-    if (a.img) d.querySelector("img").src = a.img;
-    const [s, p, desc, by] = d.querySelectorAll("strong,.price,.muted");
-    s.textContent = a.title; p.textContent = a.price; desc.textContent = a.desc; by.textContent = "Sold by " + a.by;
-    d.querySelector("button").onclick = () => { ads.splice(i, 1); save("cb-ads", ads); renderAds(); };
-    $("ads").appendChild(d);
-  });
-}
-$("adForm").onsubmit = async e => {
-  e.preventDefault();
-  const f = $("adImg").files[0];
-  ads.unshift({ title: $("adTitle").value, price: $("adPrice").value, desc: $("adDesc").value, by: cfg.name, img: f ? await resize(f, 360) : "" });
-  save("cb-ads", ads); e.target.reset(); renderAds();
-};
-
-// ================= Room (private diary, still local for now) =================
-function renderDiary() {
-  $("entries").innerHTML = "";
-  diary.forEach((en, i) => {
-    const d = document.createElement("div"); d.className = "entry";
-    d.textContent = new Date(en.time).toLocaleString() + "\n" + en.text;
-    d.title = "Tap to delete"; d.onclick = () => { if (confirm("Delete this entry?")) { diary.splice(i, 1); save("cb-diary", diary); renderDiary(); } };
-    $("entries").appendChild(d);
-  });
-}
-$("diaryForm").onsubmit = e => {
-  e.preventDefault(); const t = $("diaryText").value.trim(); if (!t) return;
-  diary.unshift({ text: t, time: Date.now() }); save("cb-diary", diary); $("diaryText").value = ""; renderDiary();
-};
-
-applyCfg(); renderAds(); renderDiary();
+// ================= Marketplace (shared with everyone) and Room (y

@@ -43,17 +43,26 @@
           <div class="tabs"><button data-tab="emoji" class="on">Emoji</button><button data-tab="sticker">Stickers</button></div>
           <div id="pickerGrid" class="grid"></div>
         </div>
-        <form id="form" class="composer" autocomplete="off">
-          <button type="button" id="pickBtn" class="round" aria-label="Emoji and stickers">:)</button>
-          <button type="button" id="imgBtn" class="round" aria-label="Send picture">Pic</button>
-          <button type="button" id="memeBtn" class="round" aria-label="Make a meme">Meme</button>
+        <div id="tray" class="tray" hidden>
+          <button type="button" id="imgBtn" class="chip">Photo</button>
+          <button type="button" id="memeBtn" class="chip">Meme</button>
+          <button type="button" id="stickBtn" class="chip">Stickers</button>
           <select id="quality" aria-label="Picture quality">
             <option value="144">144p</option><option value="240">240p</option><option value="360">360p</option>
-            <option value="480">480p</option><option value="720" selected>720p</option>
+            <option value="480">480p</option><option value="720" selected>720p HD</option>
           </select>
-          <input id="text" type="text" placeholder="Write a message" aria-label="Message" disabled>
-          <button type="button" id="micBtn" class="round" aria-label="Record voicemail">Mic</button>
-          <button type="submit" id="send" class="send" disabled>Send</button>
+        </div>
+        <form id="form" class="composer" autocomplete="off">
+          <button type="button" id="pickBtn" class="round" aria-label="Emoji">😊</button>
+          <button type="button" id="plusBtn" class="round" aria-label="Photos, memes and stickers">+</button>
+          <input id="text" type="text" placeholder="Chat here" aria-label="Message" disabled>
+          <div id="recBar" class="recbar" hidden>
+            <span class="dot"></span><span id="recTime">0:00</span><span class="grow"></span>
+            <button type="button" id="recCancel" class="round" aria-label="Cancel recording">🗑</button>
+            <button type="button" id="recSend" class="send" aria-label="Send voice note">➤</button>
+          </div>
+          <button type="button" id="micBtn" class="round mic" aria-label="Record voice note">🎤</button>
+          <button type="submit" id="send" class="send" hidden disabled aria-label="Send">➤</button>
         </form>
         <input id="file" type="file" accept="image/*" hidden>
       </div>
@@ -116,13 +125,7 @@
   </main>
 </div>
 
-<!-- Call screen -->
-<div id="call" class="call" hidden>
-  <h2 id="callName"></h2>
-  <video id="callVideo" autoplay muted playsinline></video>
-  <p class="muted">Preview only. Connecting to the other person comes with the backend.</p>
-  <button id="endCall" class="danger">End call</button>
-</div>
+
 <div id="auth" class="auth">
   <form id="authForm" class="box stack">
     <h1>Chatterbox</h1>
