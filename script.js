@@ -375,4 +375,108 @@ async function reportChat() {
     if (!c.group && !isBlocked(c) && confirm("Also block " + title(c) + "?")) toggleBlock(false);
   } catch (err) { alert(err.message); }
 }
-$("moreBtn").onclick = e => { e.stopPropagation(); $("moreMenu").h
+$("moreBtn").onclick = e => { e.stopPropagation(); $("moreMenu").hidden= !$("moreMenu").hidden; };
+document.addEventListener("click", () => $("moreMenu").hidden = true);
+$("blockBtn").onclick = () => toggleBlock();
+$("reportBtn").onclick = reportChat;
+
+// ================= Live: handled in live.js =================
+
+// ================= Marketplace (shared with everyone) and Room (your diary, on your account) =================
+function watchShared() {
+  return [
+    F.onSnapshot(F.query(F.collection(db, "ads"), F.orderBy("time", "desc"), F.limit(100)), snap => {
+      ads = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderAds();
+    }),
+    F.onSnapshot(F.query(F.collection(db, "users", me.uid, "diary"), F.orderBy("time", "desc")), snap => {
+      diary = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderDiary();
+    }),
+    F.onSnapshot(F.collection(db, "users", me.uid, "contacts"), snap => {
+      contacts = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderContacts();
+    })
+  ];
+}
+
+function renderAds() {
+  $("ads").innerHTML = "";
+  if (!me) return;
+  if (!ads.length) { $("ads").innerHTML = '<p class="muted">No ads yet. Be the first to post.</p>'; return; }
+  ads.forEach(a => {
+    const d = document.createElement("div"); d.className = "card";
+    d.innerHTML = '<img alt=""><div><strong></strong><p class="price"></p><p class="muted"></p><p class="muted"></p><div class="row"></div></div>';
+    if (a.img) d.querySelector("img").src = a.img;
+    const [t, p, desc, by] = d.querySelectorAll("strong,.price,.muted");
+    t.textContent = a.title; p.textContent = a.price; desc.textContent = a.desc; by.textContent = "Sold by " + a.by;
+    const b = document.createElement("button");
+    if (a.uid === me.uid) { b.className = "danger"; b.textContent = "Remove"; b.onclick = () => F.deleteDoc(F.doc(db, "ads", a.id)); }
+    else { b.className = "primary"; b.textContent = "Message seller"; b.onclick = () => messageUser(a.uid); }
+    d.querySelector(".row").appendChild(b); $("ads").appendChild(d);
+  });
+}
+
+$("adForm").onsubmit = async e => {
+  e.preventDefault(); if (!me) return;
+  const f = $("adImg").files[0];
+  try {
+    await F.addDoc(F.collection(db, "ads"), {
+      uid: me.uid, by: me.username, time: Date.now(),
+      title: $("adTitle").value.trim().slice(0, 80), price: $("adPrice").value.trim().slice(0, 30),
+      desc: $("adDesc").value.trim().slice(0, 500), img: f ? await resize(f, 360) : ""
+    });
+    e.target.reset();
+  } catch (err) { alert(err.message); }
+};
+
+async function messageUser(uid) {   // opens (or starts) a chat with a seller
+  if (uid === me.uid) return;
+  try {
+    const u = (await F.getDoc(F.doc(db, "users", uid))).data();
+    await addContact(uid, u.username);
+    const id = [me.uid, uid].sort().join("_"); want = id;
+    await F.setDoc(F.doc(db, "chats", id), { members: [me.uid, uid], group: false, names: { [me.uid]: me.username, [uid]: u.username } }, { merge: true });
+    document.querySelector('.rail button[data-view="chats"]').click();
+  } catch (err) { want = null; alert(err.message); }
+}
+
+function renderDiary() {
+  $("entries").innerHTML = "";
+  if (!me) return;
+  diary.forEach(en => {
+    const d = document.createElement("div"); d.className = "entry";
+    d.textContent = new Date(en.time).toLocaleString() + "\n" + en.text;
+    d.title = "Tap to delete";
+    d.onclick = () => confirm("Delete this entry?") && F.deleteDoc(F.doc(db, "users", me.uid, "diary", en.id));
+    $("entries").appendChild(d);
+  });
+}
+$("diaryForm").onsubmit = async e => {
+  e.preventDefault(); const t = $("diaryText").value.trim(); if (!t || !me) return;
+  try { await F.addDoc(F.collection(db, "users", me.uid, "diary"), { text: t, time: Date.now() }); $("diaryText").value = ""; }
+  catch (err) { alert(err.message); }
+};
+
+// ================= Contacts (used by "Only people I've added") =================
+function renderContacts() {
+  const ul = $("contactList"); ul.innerHTML = "";
+  if (!contacts.length) { ul.innerHTML = '<li class="muted">No contacts yet.</li>'; return; }
+  contacts.forEach(c => {
+    const li = document.createElement("li"); li.className = "row";
+    const n = document.createElement("span"); n.className = "grow"; n.textContent = c.username;
+    const b = document.createElement("button"); b.textContent = "Remove";
+    b.onclick = () => F.deleteDoc(F.doc(db, "users", me.uid, "contacts", c.id));
+    li.append(n, b); ul.appendChild(li);
+  });
+}
+const addContact = (uid, username) => F.setDoc(F.doc(db, "users", me.uid, "contacts", uid), { username, time: Date.now() });
+$("addContact").onclick = async () => {
+  const n = prompt("Username to add:"); if (!n || !me) return;
+  try {
+    const u = await findUser(n);
+    if (u.uid === me.uid) throw new Error("That's you");
+    await addContact(u.uid, u.username);
+  } catch (err) { alert(err.message); }
+};
+// Save the "Who can message me" choice on your account so the server can enforce it
+$("setPrivacy").addEventListener("change", () => me && F.setDoc(F.doc(db, "users", me.uid), { privacy: cfg.privacy }, { merge: true }));
+
+applyCfg();
