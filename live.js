@@ -2,8 +2,8 @@
 // The host's phone sends video straight to each viewer (WebRTC).
 // Firebase only passes the connection details and the comments.
 import { db, F } from "./firebase.js";
+import { getIce } from "./ice.js";
 
-const ICE = { iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }] };
 const $ = id => document.getElementById(id);
 
 let me = null, mode = "idle";            // idle | host | view
@@ -92,7 +92,7 @@ async function hostAnswer(docSnap) {
   const d = docSnap.data(), vid = docSnap.id;
   if (!d.offer || d.answer || peers.has(vid) || !local) return;
   try {
-    const p = new RTCPeerConnection(ICE); peers.set(vid, p);
+    const p = new RTCPeerConnection(await getIce()); peers.set(vid, p);
     local.getTracks().forEach(t => p.addTrack(t, local));
     p.onicecandidate = e => e.candidate && F.addDoc(F.collection(docSnap.ref, "hostCandidates"), e.candidate.toJSON());
     await p.setRemoteDescription(d.offer);
@@ -108,7 +108,7 @@ async function watch(hostId, hostName) {
   if (mode !== "idle") return alert("Leave your current live first.");
   mode = "view"; cur = hostId; curName = hostName;
   const vref = F.doc(db, "lives", hostId, "viewers", me.uid);
-  pc = new RTCPeerConnection(ICE);
+  pc = new RTCPeerConnection(await getIce());
   const remote = new MediaStream();
   pc.ontrack = e => e.streams[0].getTracks().forEach(t => remote.addTrack(t));
   $("liveVideo").srcObject = remote; $("liveVideo").muted = false;

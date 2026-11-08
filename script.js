@@ -22,6 +22,7 @@ const chat = () => chats.find(c => c.id === active);
 const chatById = id => chats.find(c => c.id === id);
 const other = c => c.members.find(x => x !== me.uid);
 const title = c => c.group ? c.name : (c.names || {})[other(c)] || "Chat";
+let contacts = [];   // people you added
 const photos = {};   // profile pictures of other users, loaded once
 function setAvatar(el, name, uid) {
   if (uid && photos[uid]) { el.style.backgroundImage = `url(${photos[uid]})`; el.textContent = ""; }
@@ -74,6 +75,7 @@ async function start(u) {
   const snap = await F.getDoc(F.doc(db, "users", u.uid));
   me = { uid: u.uid, ...snap.data() };
   if (me.photo) { cfg.pic = me.photo; photos[me.uid] = me.photo; }
+  cfg.privacy = me.privacy || "anyone";
   cfg.name = me.username; save("cb-cfg", cfg); applyCfg();
   initLive(me);
   $("auth").hidden = true;
@@ -82,7 +84,7 @@ async function start(u) {
       chats = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.updated || 0) - (a.updated || 0));
       if (want && chatById(want)) { const w = want; want = null; openChat(w); }
       renderList(); renderBlocked();
-      onChats(chats, me, isBlocked);
+      onChats(chats, me, c => isBlocked(c) || (cfg.privacy === "added" && !(c.call && contacts.some(x => x.id === c.call.from))));
       loadPhotos();
       if (active && !chat()) { active = null; $("shell").classList.remove("open"); }
     }),
@@ -215,6 +217,7 @@ $("newChat").onclick = async () => {
       const n = prompt("Username to message:"); if (!n) return;
       const u = await findUser(n);
       if (u.uid === me.uid) throw new Error("That's you");
+      await addContact(u.uid, u.username);   // starting a chat adds them to your contacts
       const id = [me.uid, u.uid].sort().join("_");   // same two people always get the same chat
       want = id;
       await F.setDoc(F.doc(db, "chats", id), { members: [me.uid, u.uid], group: false, names: { [me.uid]: me.username, [u.uid]: u.username } }, { merge: true });
@@ -235,7 +238,7 @@ async function push(msg) {
     await F.addDoc(F.collection(db, "chats", c.id, "messages"), { from: me.uid, time: Date.now(), ...msg });
     await F.updateDoc(F.doc(db, "chats", c.id), { updated: Date.now(), last: msg.type === "text" ? msg.text : "[" + msg.type + "]" });
   } catch (err) {
-    alert("Message not delivered. " + (err.code === "permission-denied" ? "This person may have blocked you." : err.message));
+    alert("Message not delivered. " + (err.code === "permission-denied" ? "This person may have blocked you, or only accepts messages from people they have added." : err.message));
   }
 }
 async function editMsg(m) {
@@ -372,11 +375,4 @@ async function reportChat() {
     if (!c.group && !isBlocked(c) && confirm("Also block " + title(c) + "?")) toggleBlock(false);
   } catch (err) { alert(err.message); }
 }
-$("moreBtn").onclick = e => { e.stopPropagation(); $("moreMenu").hidden = !$("moreMenu").hidden; };
-document.addEventListener("click", () => $("moreMenu").hidden = true);
-$("blockBtn").onclick = () => toggleBlock();
-$("reportBtn").onclick = reportChat;
-
-// ================= Live: handled in live.js =================
-
-// ================= Marketplace (shared with everyone) and Room (y
+$("moreBtn").onclick = e => { e.stopPropagation(); $("moreMenu").h

@@ -1,9 +1,9 @@
 // Voice and video calls between two users (WebRTC).
 // Firebase only helps the two phones find each other; the call itself goes phone to phone.
 import { db, F } from "./firebase.js";
+import { getIce } from "./ice.js";
 
 // STUN servers help each phone discover its public address.
-const ICE = { iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }] };
 
 let pc = null, local = null, subs = [], active = null, timer = null, incoming = null;
 const seen = new Set();   // calls we already answered or declined
@@ -40,7 +40,7 @@ const addCandidates = (snap) => snap.docChanges().forEach(ch => ch.type === "add
 // ---------- Shared setup: microphone/camera and the connection ----------
 async function setup(chatId, callId, video, role, name) {
   local = await navigator.mediaDevices.getUserMedia({ audio: true, video });
-  pc = new RTCPeerConnection(ICE);
+  pc = new RTCPeerConnection(await getIce());
   local.getTracks().forEach(t => pc.addTrack(t, local));
 
   const remote = new MediaStream();
